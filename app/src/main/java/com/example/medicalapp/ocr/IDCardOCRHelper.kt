@@ -46,8 +46,29 @@ class IDCardOCRHelper {
     }
     
     private fun callOCRAPI(imageBase64: String): IDCardInfo? {
-        val url = "https://ocr-api.cn-hangzhou.aliyuncs.com"
+        // 尝试两个可能的 endpoint
+        val endpoints = listOf(
+            "https://ocr-api.cn-hangzhou.aliyuncs.com",
+            "https://ocr.cn-hangzhou.aliyuncs.com"
+        )
         
+        for (url in endpoints) {
+            try {
+                Log.d(TAG, "Trying endpoint: $url")
+                val result = tryCallEndpoint(url, imageBase64)
+                if (result != null) {
+                    Log.d(TAG, "Success with endpoint: $url")
+                    return result
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed with $url: ${e.message}")
+            }
+        }
+        
+        return null
+    }
+    
+    private fun tryCallEndpoint(url: String, imageBase64: String): IDCardInfo? {
         val params = mutableMapOf(
             "Action" to "RecognizeIdcard",
             "Version" to "2021-07-07",
@@ -57,7 +78,7 @@ class IDCardOCRHelper {
             "Timestamp" to getTimestamp(),
             "SignatureVersion" to "1.0",
             "SignatureNonce" to UUID.randomUUID().toString(),
-            "body" to imageBase64
+            "ImageURL" to imageBase64  // 尝试 ImageURL 而不是 body
         )
         
         val signature = calculateSignature(params, accessKeySecret)
@@ -85,6 +106,10 @@ class IDCardOCRHelper {
             return null
         }
         
+        return parseResponse(body)
+    }
+    
+    private fun parseResponse(body: String): IDCardInfo? {
         return try {
             val json = JSONObject(body)
             
@@ -96,41 +121,55 @@ class IDCardOCRHelper {
                 return null
             }
             
-            if (json.has("Data")) {
-                val data = json.getJSONObject("Data")
-                Log.d(TAG, "Data: ${data.toString(2)}")
-                
-                val faceData = data.optJSONObject("face")
-                
-                if (faceData != null) {
-                    val dataObj = faceData.optJSONObject("data")
-                    
-                    if (dataObj != null) {
-                        val name = dataObj.optString("name", "")
-                        val idNumber = dataObj.optString("idNumber", "")
-                        val sex = dataObj.optString("sex", "")
-                        val address = dataObj.optString("address", "")
-                        
-                        Log.d(TAG, "Parsed: name=$name, idNumber=$idNumber, sex=$sex")
-                        
-                        IDCardInfo(
-                            name = name,
-                            idNumber = idNumber,
-                            gender = sex,
-                            address = address
-                        )
-                    } else {
-                        Log.e(TAG, "data object is null")
-                        null
-                    }
-                } else {
-                    Log.e(TAG, "face object is null, full data: ${data.toString(2)}")
-                    null
-                }
-            } else {
+            if (!json.has("Data")) {
                 Log.e(TAG, "No Data field in response")
+                return null
+            }
+            
+            val data = json.getJSONObject("Data")
+            Log.d(TAG, "Data object: ${data.toString(2)}")
+            
+            // 尝试多种可能的返回结构
+            val frontResult = data.optJSONObject("FrontResult")
+                ?: data.optJSONObject("frontResult")
+                ?: data.optJSONObject("face")
+            
+            if (frontResult == null) {
+                Log.e(TAG, "No front result found, available keys: ${data.keys().asSequence().toList()}")
+                return null
+            }
+            
+            Log.d(TAG, "Front result: ${frontResult.toString(2)}")
+            
+            // 尝试多种可能的字段名
+            val name = frontResult.optString("Name")
+                .ifEmpty { frontResult.optString("name") }
+            
+            val idNumber = frontResult.optString("IDNumber")
+                .ifEmpty { frontResult.optString("idNumber") }
+                .ifEmpty { frontResult.optString("cardNumber") }
+            
+            val gender = frontResult.optString("Gender")
+                .ifEmpty { frontResult.optString("gender") }
+                .ifEmpty { frontResult.optString("sex") }
+            
+            val address = frontResult.optString("Address")
+                .ifEmpty { frontResult.optString("address") }
+            
+            Log.d(TAG, "Parsed: name=$name, idNumber=$idNumber, gender=$gender")
+            
+            if (name.isNotEmpty() || idNumber.isNotEmpty()) {
+                IDCardInfo(
+                    name = name,
+                    idNumber = idNumber,
+                    gender = gender,
+                    address = address
+                )
+            } else {
+                Log.e(TAG, "Parsed fields are empty")
                 null
             }
+            
         } catch (e: Exception) {
             Log.e(TAG, "Parse exception: ${e.message}", e)
             null
