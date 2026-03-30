@@ -3,7 +3,6 @@ package com.example.medicalapp.ocr
 import android.graphics.Bitmap
 import android.util.Base64
 import android.util.Log
-import com.example.medicalapp.BuildConfig
 import com.example.medicalapp.model.IDCardInfo
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -12,31 +11,35 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.io.ByteArrayOutputStream
-import java.net.URLEncoder
-import java.text.SimpleDateFormat
-import java.util.*
-import javax.crypto.Mac
-import javax.crypto.spec.SecretKeySpec
 
 class IDCardOCRHelper {
     
-    private val TAG = "AliyunOCR"
-    private val accessKeyId = BuildConfig.ALIYUN_ACCESS_KEY_ID
-    private val accessKeySecret = BuildConfig.ALIYUN_ACCESS_KEY_SECRET
+    private val TAG = "BaiduOCR"
+    private val API_KEY = "Su4BMNAumYZWBzJbuI1wASF"
+    private val SECRET_KEY = "Zyw7FNQ3EvobHqy41ZxloTnLQYcVW83K"
     
     private val client = OkHttpClient.Builder().build()
+    private var accessToken: String? = null
     
     suspend fun recognizeIDCard(bitmap: Bitmap): IDCardInfo? {
         return withContext(Dispatchers.IO) {
             try {
-                if (accessKeyId.isEmpty() || accessKeySecret.isEmpty()) {
-                    Log.e(TAG, "Credentials not configured")
+                if (accessToken == null) {
+                    accessToken = getAccessToken()
+                    Log.d(TAG, "Got access token: ${accessToken?.take(10)}...")
+                }
+                
+                if (accessToken == null) {
+                    Log.e(TAG, "Failed to get access token")
                     return@withContext null
                 }
                 
                 val imageBase64 = bitmapToBase64(bitmap)
                 Log.d(TAG, "Image base64 length: ${imageBase64.length}")
-                callOCRAPI(imageBase64)
+                
+                val result = callBaiduOCR(imageBase64)
+                Log.d(TAG, "OCR Result: $result")
+                result
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Exception: ${e.message}", e)
@@ -45,164 +48,114 @@ class IDCardOCRHelper {
         }
     }
     
-    private fun callOCRAPI(imageBase64: String): IDCardInfo? {
-        // 尝试两个可能的 endpoint
-        val endpoints = listOf(
-            "https://ocr-api.cn-hangzhou.aliyuncs.com",
-            "https://ocr.cn-hangzhou.aliyuncs.com"
-        )
-        
-        for (url in endpoints) {
-            try {
-                Log.d(TAG, "Trying endpoint: $url")
-                val result = tryCallEndpoint(url, imageBase64)
-                if (result != null) {
-                    Log.d(TAG, "Success with endpoint: $url")
-                    return result
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Failed with $url: ${e.message}")
-            }
-        }
-        
-        return null
-    }
-    
-    private fun tryCallEndpoint(url: String, imageBase64: String): IDCardInfo? {
-        val params = mutableMapOf(
-            "Action" to "RecognizeIdcard",
-            "Version" to "2021-07-07",
-            "Format" to "JSON",
-            "AccessKeyId" to accessKeyId,
-            "SignatureMethod" to "HMAC-SHA1",
-            "Timestamp" to getTimestamp(),
-            "SignatureVersion" to "1.0",
-            "SignatureNonce" to UUID.randomUUID().toString(),
-            "ImageURL" to imageBase64  // 尝试 ImageURL 而不是 body
-        )
-        
-        val signature = calculateSignature(params, accessKeySecret)
-        params["Signature"] = signature
-        
-        val formBody = FormBody.Builder().apply {
-            params.forEach { (key, value) ->
-                add(key, value)
-            }
-        }.build()
+    private fun getAccessToken(): String? {
+        val url = "https://aip.baidubce.com/oauth/2.0/token" +
+                "?grant_type=client_credentials" +
+                "&client_id=$API_KEY" +
+                "&client_secret=$SECRET_KEY"
         
         val request = Request.Builder()
             .url(url)
-            .post(formBody)
+            .post(FormBody.Builder().build())
             .build()
         
-        val response = client.newCall(request).execute()
-        val body = response.body?.string()
-        
-        Log.d(TAG, "Response code: ${response.code}")
-        Log.d(TAG, "Response body: $body")
-        
-        if (body == null) {
-            Log.e(TAG, "Empty response body")
-            return null
-        }
-        
-        return parseResponse(body)
-    }
-    
-    private fun parseResponse(body: String): IDCardInfo? {
         return try {
+            val response = client.newCall(request).execute()
+            val body = response.body?.string()
+            Log.d(TAG, "Token response: $body")
+            
+            if (body == null) return null
+            
             val json = JSONObject(body)
-            
-            // 检查错误
-            if (json.has("Code")) {
-                val code = json.getString("Code")
-                val message = json.optString("Message", "Unknown error")
-                Log.e(TAG, "API Error: $code - $message")
-                return null
-            }
-            
-            if (!json.has("Data")) {
-                Log.e(TAG, "No Data field in response")
-                return null
-            }
-            
-            val data = json.getJSONObject("Data")
-            Log.d(TAG, "Data object: ${data.toString(2)}")
-            
-            // 尝试多种可能的返回结构
-            val frontResult = data.optJSONObject("FrontResult")
-                ?: data.optJSONObject("frontResult")
-                ?: data.optJSONObject("face")
-            
-            if (frontResult == null) {
-                Log.e(TAG, "No front result found, available keys: ${data.keys().asSequence().toList()}")
-                return null
-            }
-            
-            Log.d(TAG, "Front result: ${frontResult.toString(2)}")
-            
-            // 尝试多种可能的字段名
-            val name = frontResult.optString("Name")
-                .ifEmpty { frontResult.optString("name") }
-            
-            val idNumber = frontResult.optString("IDNumber")
-                .ifEmpty { frontResult.optString("idNumber") }
-                .ifEmpty { frontResult.optString("cardNumber") }
-            
-            val gender = frontResult.optString("Gender")
-                .ifEmpty { frontResult.optString("gender") }
-                .ifEmpty { frontResult.optString("sex") }
-            
-            val address = frontResult.optString("Address")
-                .ifEmpty { frontResult.optString("address") }
-            
-            Log.d(TAG, "Parsed: name=$name, idNumber=$idNumber, gender=$gender")
-            
-            if (name.isNotEmpty() || idNumber.isNotEmpty()) {
-                IDCardInfo(
-                    name = name,
-                    idNumber = idNumber,
-                    gender = gender,
-                    address = address
-                )
-            } else {
-                Log.e(TAG, "Parsed fields are empty")
+            val token = json.optString("access_token")
+            if (token.isEmpty()) {
+                Log.e(TAG, "Empty token in response")
                 null
+            } else {
+                token
             }
-            
         } catch (e: Exception) {
-            Log.e(TAG, "Parse exception: ${e.message}", e)
+            Log.e(TAG, "Get token error: ${e.message}")
             null
         }
     }
     
-    private fun calculateSignature(params: Map<String, String>, secret: String): String {
-        val sortedParams = params.toSortedMap()
-        val queryString = sortedParams.map { (key, value) ->
-            "${percentEncode(key)}=${percentEncode(value)}"
-        }.joinToString("&")
+    private fun callBaiduOCR(imageBase64: String): IDCardInfo? {
+        val url = "https://aip.baidubce.com/rest/2.0/ocr/v1/idcard" +
+                "?access_token=$accessToken" +
+                "&id_card_side=front"
         
-        val stringToSign = "POST&${percentEncode("/")}&${percentEncode(queryString)}"
-        val signKey = "$secret&"
+        val formBody = FormBody.Builder()
+            .add("image", imageBase64)
+            .add("detect_direction", "true")
+            .build()
         
-        val mac = Mac.getInstance("HmacSHA1")
-        mac.init(SecretKeySpec(signKey.toByteArray(), "HmacSHA1"))
-        val signature = mac.doFinal(stringToSign.toByteArray())
+        val request = Request.Builder()
+            .url(url)
+            .post(formBody)
+            .addHeader("Content-Type", "application/x-www-form-urlencoded")
+            .build()
         
-        return Base64.encodeToString(signature, Base64.DEFAULT).trim()
+        return try {
+            val response = client.newCall(request).execute()
+            val body = response.body?.string()
+            
+            Log.d(TAG, "OCR API response: $body")
+            
+            if (body == null) {
+                Log.e(TAG, "Empty response body")
+                return null
+            }
+            
+            val json = JSONObject(body)
+            
+            if (json.has("error_code")) {
+                val errorCode = json.getInt("error_code")
+                val errorMsg = json.optString("error_msg")
+                Log.e(TAG, "Baidu API Error $errorCode: $errorMsg")
+                
+                if (errorCode == 110 || errorCode == 111) {
+                    accessToken = null
+                }
+                return null
+            }
+            
+            val wordsResult = json.optJSONObject("words_result")
+            if (wordsResult == null) {
+                Log.e(TAG, "No words_result in response")
+                return null
+            }
+            
+            val name = extractField(wordsResult, "姓名")
+            val idNumber = extractField(wordsResult, "公民身份号码")
+            val gender = extractField(wordsResult, "性别")
+            val address = extractField(wordsResult, "住址")
+            
+            Log.d(TAG, "Parsed - Name: $name, ID: $idNumber, Gender: $gender")
+            
+            if (name.isEmpty() && idNumber.isEmpty()) {
+                Log.e(TAG, "Parsed fields are empty")
+                return null
+            }
+            
+            IDCardInfo(
+                name = name,
+                idNumber = idNumber,
+                gender = gender,
+                address = address
+            )
+            
+        } catch (e: Exception) {
+            Log.e(TAG, "Parse error: ${e.message}", e)
+            null
+        }
     }
     
-    private fun percentEncode(value: String): String {
-        return URLEncoder.encode(value, "UTF-8")
-            .replace("+", "%20")
-            .replace("*", "%2A")
-            .replace("%7E", "~")
-    }
-    
-    private fun getTimestamp(): String {
-        val sdf = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US)
-        sdf.timeZone = TimeZone.getTimeZone("UTC")
-        return sdf.format(Date())
+    private fun extractField(wordsResult: JSONObject, fieldName: String): String {
+        val fieldObj = wordsResult.optJSONObject(fieldName)
+        val value = fieldObj?.optString("words", "") ?: ""
+        Log.d(TAG, "Field [$fieldName]: $value")
+        return value
     }
     
     private fun bitmapToBase64(bitmap: Bitmap): String {
