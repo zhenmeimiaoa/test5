@@ -55,7 +55,7 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             val faceBitmap = FaceCaptureActivity.capturedFaceBitmap
             faceBitmap?.let {
-                LogActivity.addLog("Main", "Face captured successfully, size: ${it.width}x${it.height}")
+                LogActivity.addLog("Main", "Face captured successfully")
                 compareFaces(it)
                 FaceCaptureActivity.capturedFaceBitmap = null
             } ?: run {
@@ -142,17 +142,20 @@ class MainActivity : AppCompatActivity() {
                 tvStatus.text = "Recognizing..."
                 LogActivity.addLog("OCR", "Starting OCR recognition")
                 
-                withContext(Dispatchers.IO) {
+                val info = withContext(Dispatchers.IO) {
                     ocrHelper?.recognizeIDCard(bitmap)
-                }?.let { info ->
+                }
+                
+                if (info != null) {
                     fillForm(info)
                     btnEdit.visibility = View.VISIBLE
                     btnFaceCompare.isEnabled = true
                     tvStatus.text = "ID card recognized. Tap Start Face Verification."
                     LogActivity.addLog("OCR", "Success: ${info.name}, ${info.idNumber}")
-                } ?: run {
+                } else {
                     tvStatus.text = "OCR failed. Please input manually."
                     enableEditMode(true)
+                    btnFaceCompare.isEnabled = true
                     LogActivity.addLog("OCR", "Failed to recognize")
                 }
                 
@@ -223,9 +226,9 @@ class MainActivity : AppCompatActivity() {
                     if (message == "Success") {
                         val isMatch = score >= 60.0
                         val resultText = if (isMatch) {
-                            "鏄悓涓€浜猴紙鐩镐技搴︼細${"%.1f".format(score)}%锛?
+                            "SAME PERSON (Similarity: ${"%.1f".format(score)}%)"
                         } else {
-                            "涓嶆槸鍚屼竴浜猴紙鐩镐技搴︼細${"%.1f".format(score)}%锛?
+                            "DIFFERENT PERSON (Similarity: ${"%.1f".format(score)}%)"
                         }
                         tvResult.text = resultText
                         tvResult.setBackgroundColor(
@@ -233,12 +236,12 @@ class MainActivity : AppCompatActivity() {
                             else android.graphics.Color.parseColor("#F44336")
                         )
                         tvStatus.text = "Verification completed"
-                        LogActivity.addLog("Face", "缁撴灉: $resultText")
+                        LogActivity.addLog("Face", "Result: $resultText")
                     } else {
                         tvResult.text = "Error: $message"
                         tvResult.setBackgroundColor(android.graphics.Color.parseColor("#FFC107"))
                         tvStatus.text = "Verification failed"
-                        LogActivity.addLog("ERROR", "API閿欒: $message")
+                        LogActivity.addLog("ERROR", "API Error: $message")
                     }
                 }
                 
