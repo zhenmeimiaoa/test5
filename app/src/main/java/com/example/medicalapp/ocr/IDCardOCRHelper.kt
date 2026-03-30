@@ -2,6 +2,7 @@ package com.example.medicalapp.ocr
 
 import android.graphics.Bitmap
 import android.util.Base64
+import android.util.Log
 import com.example.medicalapp.BuildConfig
 import com.example.medicalapp.model.IDCardInfo
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ import javax.crypto.spec.SecretKeySpec
 
 class IDCardOCRHelper {
     
+    private val TAG = "AliyunOCR"
     private val accessKeyId = BuildConfig.ALIYUN_ACCESS_KEY_ID
     private val accessKeySecret = BuildConfig.ALIYUN_ACCESS_KEY_SECRET
     
@@ -28,13 +30,16 @@ class IDCardOCRHelper {
         return withContext(Dispatchers.IO) {
             try {
                 if (accessKeyId.isEmpty() || accessKeySecret.isEmpty()) {
+                    Log.e(TAG, "Credentials not configured")
                     return@withContext null
                 }
                 
                 val imageBase64 = bitmapToBase64(bitmap)
+                Log.d(TAG, "Image base64 length: ${imageBase64.length}")
                 callOCRAPI(imageBase64)
                 
             } catch (e: Exception) {
+                Log.e(TAG, "Exception: ${e.message}", e)
                 null
             }
         }
@@ -70,30 +75,64 @@ class IDCardOCRHelper {
             .build()
         
         val response = client.newCall(request).execute()
-        val body = response.body?.string() ?: return null
+        val body = response.body?.string()
+        
+        Log.d(TAG, "Response code: ${response.code}")
+        Log.d(TAG, "Response body: $body")
+        
+        if (body == null) {
+            Log.e(TAG, "Empty response body")
+            return null
+        }
         
         return try {
             val json = JSONObject(body)
+            
+            // ¼ì²é´íÎó
+            if (json.has("Code")) {
+                val code = json.getString("Code")
+                val message = json.optString("Message", "Unknown error")
+                Log.e(TAG, "API Error: $code - $message")
+                return null
+            }
+            
             if (json.has("Data")) {
                 val data = json.getJSONObject("Data")
+                Log.d(TAG, "Data: ${data.toString(2)}")
+                
                 val faceData = data.optJSONObject("face")
                 
                 if (faceData != null) {
                     val dataObj = faceData.optJSONObject("data")
                     
-                    IDCardInfo(
-                        name = dataObj?.optString("name", "") ?: "",
-                        idNumber = dataObj?.optString("idNumber", "") ?: "",
-                        gender = dataObj?.optString("sex", "") ?: "",
-                        address = dataObj?.optString("address", "") ?: ""
-                    )
+                    if (dataObj != null) {
+                        val name = dataObj.optString("name", "")
+                        val idNumber = dataObj.optString("idNumber", "")
+                        val sex = dataObj.optString("sex", "")
+                        val address = dataObj.optString("address", "")
+                        
+                        Log.d(TAG, "Parsed: name=$name, idNumber=$idNumber, sex=$sex")
+                        
+                        IDCardInfo(
+                            name = name,
+                            idNumber = idNumber,
+                            gender = sex,
+                            address = address
+                        )
+                    } else {
+                        Log.e(TAG, "data object is null")
+                        null
+                    }
                 } else {
+                    Log.e(TAG, "face object is null, full data: ${data.toString(2)}")
                     null
                 }
             } else {
+                Log.e(TAG, "No Data field in response")
                 null
             }
         } catch (e: Exception) {
+            Log.e(TAG, "Parse exception: ${e.message}", e)
             null
         }
     }
