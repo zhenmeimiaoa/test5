@@ -143,14 +143,90 @@ class MainActivity : AppCompatActivity() {
                 LogActivity.addLog("OCR", "Starting OCR recognition")
                 
                 LogActivity.addLog("OCR", "Calling ocrHelper.recognizeIDCard...")
+                // 内联百度 OCR 测试
                 val info = withContext(Dispatchers.IO) {
                     try {
-                        val result = ocrHelper?.recognizeIDCard(bitmap)
-                        LogActivity.addLog("OCR", "recognizeIDCard returned: $result")
-                        result
+                        LogActivity.addLog("OCR", "Starting inline Baidu OCR...")
+                        
+                        // 直接在这里调用百度 OCR
+                        val API_KEY = "Su4BMNAumYZWBzJbuiL1wASF"
+                        val SECRET_KEY = "Zyw7FNQ3EvobHqy41ZxIoTnLQYcVW83K"
+                        
+                        // 1. 获取 token
+                        val tokenUrl = "https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=$API_KEY&client_secret=$SECRET_KEY"
+                        val tokenRequest = okhttp3.Request.Builder()
+                            .url(tokenUrl)
+                            .post(okhttp3.FormBody.Builder().build())
+                            .build()
+                        
+                        val client = okhttp3.OkHttpClient()
+                        LogActivity.addLog("OCR", "Getting token...")
+                        val tokenResponse = client.newCall(tokenRequest).execute()
+                        val tokenBody = tokenResponse.body?.string()
+                        LogActivity.addLog("OCR", "Token response: $tokenBody")
+                        
+                        val token = org.json.JSONObject(tokenBody ?: "{}").optString("access_token")
+                        if (token.isEmpty()) {
+                            LogActivity.addLog("OCR", "Failed to get token")
+                            return@withContext null
+                        }
+                        LogActivity.addLog("OCR", "Got token: ${token.take(20)}...")
+                        
+                        // 2. 转换图片
+                        val outputStream = java.io.ByteArrayOutputStream()
+                        bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, outputStream)
+                        val imageBase64 = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
+                        LogActivity.addLog("OCR", "Image base64 length: ${imageBase64.length}")
+                        
+                        // 3. 调用 OCR
+                        val ocrUrl = "https://aip.baidubce.com/rest/2.0/ocr/v1/idcard?access_token=$token&id_card_side=front"
+                        val ocrBody = okhttp3.FormBody.Builder()
+                            .add("image", imageBase64)
+                            .add("detect_direction", "true")
+                            .build()
+                        
+                        val ocrRequest = okhttp3.Request.Builder()
+                            .url(ocrUrl)
+                            .post(ocrBody)
+                            .build()
+                        
+                        LogActivity.addLog("OCR", "Calling Baidu OCR API...")
+                        val ocrResponse = client.newCall(ocrRequest).execute()
+                        val ocrResult = ocrResponse.body?.string()
+                        LogActivity.addLog("OCR", "OCR response: $ocrResult")
+                        
+                        // 4. 解析结果
+                        val json = org.json.JSONObject(ocrResult ?: "{}")
+                        if (json.has("error_code")) {
+                            LogActivity.addLog("OCR", "API error: ${json.optString("error_msg")}")
+                            return@withContext null
+                        }
+                        
+                        val wordsResult = json.optJSONObject("words_result") ?: return@withContext null
+                        
+                        val name = wordsResult.optJSONObject("姓名")?.optString("words", "") ?: ""
+                        val idNumber = wordsResult.optJSONObject("公民身份号码")?.optString("words", "") ?: ""
+                        val gender = wordsResult.optJSONObject("性别")?.optString("words", "") ?: ""
+                        val address = wordsResult.optJSONObject("住址")?.optString("words", "") ?: ""
+                        
+                        LogActivity.addLog("OCR", "Parsed: name=$name, id=$idNumber")
+                        
+                        if (name.isEmpty() && idNumber.isEmpty()) {
+                            LogActivity.addLog("OCR", "Empty result")
+                            return@withContext null
+                        }
+                        
+                        com.example.medicalapp.model.IDCardInfo(
+                            name = name,
+                            idNumber = idNumber,
+                            gender = gender,
+                            address = address
+                        )
+                        
                     } catch (e: Exception) {
-                        LogActivity.addLog("OCR", "Exception in recognizeIDCard: ${e.message}")
-                        LogActivity.addLog("OCR", "Stack trace: ${e.stackTraceToString()}")
+                        LogActivity.addLog("OCR", "Inline OCR Exception: ${e.javaClass.simpleName}")
+                        LogActivity.addLog("OCR", "Exception message: ${e.message}")
+                        LogActivity.addLog("OCR", "Stack: ${e.stackTrace.take(5).joinToString("\n")}")
                         null
                     }
                 }
@@ -283,4 +359,5 @@ class MainActivity : AppCompatActivity() {
         scope.cancel()
     }
 }
+
 
