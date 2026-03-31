@@ -202,14 +202,27 @@ class MainActivity : AppCompatActivity() {
                             return@withContext null
                         }
                         
-                        val wordsResult = json.optJSONObject("words_result") ?: return@withContext null
+                        val wordsResult = json.optJSONObject("words_result") 
+                        if (wordsResult == null) {
+                            LogActivity.addLog("OCR", "words_result is null")
+                            return@withContext null
+                        }
                         
-                        val name = wordsResult.optJSONObject("姓名")?.optString("words", "") ?: ""
-                        val idNumber = wordsResult.optJSONObject("公民身份号码")?.optString("words", "") ?: ""
-                        val gender = wordsResult.optJSONObject("性别")?.optString("words", "") ?: ""
-                        val address = wordsResult.optJSONObject("住址")?.optString("words", "") ?: ""
+                        LogActivity.addLog("OCR", "words_result keys: ${wordsResult.keys().asSequence().toList()}")
                         
-                        LogActivity.addLog("OCR", "Parsed: name=$name, id=$idNumber")
+                        val nameObj = wordsResult.optJSONObject("姓名")
+                        val idObj = wordsResult.optJSONObject("公民身份号码")
+                        val genderObj = wordsResult.optJSONObject("性别")
+                        val addressObj = wordsResult.optJSONObject("住址")
+                        
+                        LogActivity.addLog("OCR", "nameObj: $nameObj, idObj: $idObj")
+                        
+                        val name = nameObj?.optString("words") ?: ""
+                        val idNumber = idObj?.optString("words") ?: ""
+                        val gender = genderObj?.optString("words") ?: ""
+                        val address = addressObj?.optString("words") ?: ""
+                        
+                        LogActivity.addLog("OCR", "Parsed: name='$name', id='$idNumber', gender='$gender'")
                         
                         if (name.isEmpty() && idNumber.isEmpty()) {
                             LogActivity.addLog("OCR", "Empty result")
@@ -359,6 +372,7 @@ class MainActivity : AppCompatActivity() {
         scope.cancel()
     }
 }
+
 
 
 
