@@ -28,17 +28,8 @@ jobs:
     - name: Build with Gradle
       run: ./gradlew assembleDebug
       
-    - name: Get timestamp
-      id: timestamp
-      run: echo "timestamp=$(date +'%Y%m%d_%H%M%S')" >> $GITHUB_OUTPUT
-      
-    - name: Rename APK with timestamp
-      run: |
-        TIMESTAMP=${{ steps.timestamp.outputs.timestamp }}
-        mv app/build/outputs/apk/debug/app-debug.apk app/build/outputs/apk/debug/MedicalApp_${TIMESTAMP}.apk
-        
     - name: Upload APK
       uses: actions/upload-artifact@v3
       with:
-        name: MedicalApp_${{ steps.timestamp.outputs.timestamp }}
-        path: app/build/outputs/apk/debug/MedicalApp_*.apk
+        name: app-debug
+        path: app/build/outputs/apk/debug/app-debug.apk
