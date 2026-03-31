@@ -16,7 +16,6 @@ import androidx.lifecycle.lifecycleScope
 import com.example.medicalapp.model.IDCardInfo
 import com.example.medicalapp.ocr.IDCardOCRHelper
 import com.example.medicalapp.face.AliyunFaceHelper
-import com.example.medicalapp.util.LogActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -276,18 +275,20 @@ class MainActivity : AppCompatActivity() {
                     aliyunFaceHelper?.compareFaces(idCardBitmap, faceBitmap)
                 }
                 
-                result?.let {
-                    LogActivity.addLog("Face", "API Result: score=${it.confidenceScore}, message=${it.message}")
+                result?.let { (score, message) ->
+                    LogActivity.addLog("Face", "API Result: score=$score, message=$message")
                     
-                    if (it.isSamePerson) {
-                        val similarity = (it.confidenceScore * 100).toInt()
+                    val isSamePerson = score > 60.0
+                    val similarity = score.toInt()
+                    
+                    if (isSamePerson) {
                         tvResult.text = "SAME PERSON (Similarity: $similarity%)"
                         tvResult.setBackgroundColor(android.graphics.Color.GREEN)
                         LogActivity.addLog("Face", "Result: SAME PERSON (Similarity: $similarity%)")
                     } else {
-                        tvResult.text = "DIFFERENT PERSON"
+                        tvResult.text = "DIFFERENT PERSON (Similarity: $similarity%)"
                         tvResult.setBackgroundColor(android.graphics.Color.RED)
-                        LogActivity.addLog("Face", "Result: DIFFERENT PERSON")
+                        LogActivity.addLog("Face", "Result: DIFFERENT PERSON (Similarity: $similarity%)")
                     }
                     tvResult.visibility = android.view.View.VISIBLE
                 }
