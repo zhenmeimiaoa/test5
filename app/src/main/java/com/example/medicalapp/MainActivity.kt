@@ -221,11 +221,20 @@ class MainActivity : AppCompatActivity() {
     
     private fun parseOCRResult(jsonStr: String): IDCardInfo? {
         try {
+            // 直接用字符串查找（绕过中文键名问题）
             fun extractField(fieldName: String): String {
-                val pattern = "\"$fieldName\":\\s*\\{[^}]*\"words\":\\s*\"([^\"]*)\""
-                val regex = Regex(pattern)
-                val match = regex.find(jsonStr)
-                return match?.groupValues?.get(1) ?: ""
+                val keyPattern = "\"$fieldName\":{\"words\":\""
+                val startIdx = jsonStr.indexOf(keyPattern)
+                if (startIdx == -1) {
+                    LogActivity.addLog("OCR", "Field '$fieldName' not found in JSON")
+                    return ""
+                }
+                
+                val valueStart = startIdx + keyPattern.length
+                val valueEnd = jsonStr.indexOf("\"", valueStart)
+                if (valueEnd == -1) return ""
+                
+                return jsonStr.substring(valueStart, valueEnd)
             }
             
             val name = extractField("姓名")
@@ -306,3 +315,4 @@ class MainActivity : AppCompatActivity() {
         aliyunFaceHelper?.close()
     }
 }
+
