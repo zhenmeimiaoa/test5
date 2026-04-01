@@ -1,4 +1,4 @@
-package com.example.medicalapp
+﻿package com.example.medicalapp
 
 import android.content.Intent
 import android.graphics.Bitmap
@@ -71,62 +71,101 @@ class MainActivity : AppCompatActivity() {
         tvResult = findViewById(R.id.tvResult)
         layoutUpload = findViewById(R.id.layoutUpload)
         
+        btnFaceCompare.isEnabled = true
+        btnFaceCompare.alpha = 1.0f
+        
         layoutUpload.setOnClickListener {
-            openGallery()
+            try {
+                LogActivity.addLog("Main", "Upload clicked")
+                openGallery()
+            } catch (e: Exception) {
+                LogActivity.addLog("Main", "Upload error: ")
+                Toast.makeText(this, "Error: ", Toast.LENGTH_LONG).show()
+            }
         }
         
         ivIdCard.setOnClickListener {
-            openGallery()
+            try {
+                LogActivity.addLog("Main", "Image clicked")
+                openGallery()
+            } catch (e: Exception) {
+                LogActivity.addLog("Main", "Image click error: ")
+                Toast.makeText(this, "Error: ", Toast.LENGTH_LONG).show()
+            }
         }
         
         btnFaceCompare.setOnClickListener {
-            startFaceVerification()
+            try {
+                LogActivity.addLog("Main", "Face compare clicked")
+                startFaceVerification()
+            } catch (e: Exception) {
+                LogActivity.addLog("Main", "Face compare error: ")
+                Toast.makeText(this, "Error: ", Toast.LENGTH_LONG).show()
+            }
         }
         
         btnLogs.setOnClickListener {
-            startActivity(Intent(this, LogActivity::class.java))
+            try {
+                startActivity(Intent(this, LogActivity::class.java))
+            } catch (e: Exception) {
+                Toast.makeText(this, "Error: ", Toast.LENGTH_LONG).show()
+            }
         }
     }
     
     private fun initHelpers() {
-        ocrHelper = IDCardOCRHelper()
-        aliyunFaceHelper = AliyunFaceHelper()
-        LogActivity.addLog("Main", "Helpers initialized")
+        try {
+            ocrHelper = IDCardOCRHelper()
+            aliyunFaceHelper = AliyunFaceHelper()
+            LogActivity.addLog("Main", "Helpers initialized")
+        } catch (e: Exception) {
+            LogActivity.addLog("Main", "Helper init error: ")
+        }
     }
     
     private fun openGallery() {
-        val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
-        startActivityForResult(intent, PICK_IMAGE)
+        try {
+            val intent = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+            startActivityForResult(intent, PICK_IMAGE)
+        } catch (e: Exception) {
+            LogActivity.addLog("Main", "Gallery error: ")
+            Toast.makeText(this, "Cannot open gallery: ", Toast.LENGTH_LONG).show()
+        }
     }
     
     private fun startFaceVerification() {
+        LogActivity.addLog("Main", "Face verification started, info=")
+        
         if (currentIdCardInfo == null) {
             Toast.makeText(this, "Please upload ID card first", Toast.LENGTH_SHORT).show()
             return
         }
         
-        LogActivity.addLog("Main", "Starting face capture activity")
-        val intent = Intent(this, FaceCaptureActivity::class.java)
-        startActivityForResult(intent, FACE_CAPTURE)
+        try {
+            val intent = Intent(this, FaceCaptureActivity::class.java)
+            startActivityForResult(intent, FACE_CAPTURE)
+        } catch (e: Exception) {
+            LogActivity.addLog("Main", "Face capture error: ")
+            Toast.makeText(this, "Cannot start: ", Toast.LENGTH_LONG).show()
+        }
     }
     
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         
+        LogActivity.addLog("Main", "Result: code=, result=")
+        
         if (requestCode == PICK_IMAGE && resultCode == RESULT_OK && data != null) {
-            val imageUri: Uri? = data.data
-            imageUri?.let {
-                LogActivity.addLog("Main", "Loading image from gallery")
+            data.data?.let {
+                LogActivity.addLog("Main", "Image selected: ")
                 handleImageSelected(it)
             }
         } else if (requestCode == FACE_CAPTURE && resultCode == RESULT_OK && data != null) {
             val faceBitmap: Bitmap? = data.getParcelableExtra("face_bitmap")
             faceBitmap?.let {
-                LogActivity.addLog("Main", "Face captured successfully")
+                LogActivity.addLog("Main", "Face captured")
                 performFaceVerification(it)
             }
-        } else if (requestCode == FACE_CAPTURE) {
-            LogActivity.addLog("Main", "Face capture cancelled")
         }
     }
     
@@ -138,42 +177,42 @@ class MainActivity : AppCompatActivity() {
                     BitmapFactory.decodeStream(inputStream)
                 }
                 
-                bitmap?.let {
-                    currentIdCardBitmap = it
-                    ivIdCard.setImageBitmap(it)
-                    layoutUpload.visibility = android.view.View.GONE
-                    
-                    LogActivity.addLog("OCR", "Starting OCR recognition")
-                    
-                    val info = withContext(Dispatchers.IO) {
-                        performBaiduOCR(it)
-                    }
-                    
-                    if (info != null) {
-                        currentIdCardInfo = info
-                        displayIDCardInfo(info)
-                        tvStatus.text = "ID Card recognized successfully"
-                        btnFaceCompare.isEnabled = true
-                        btnFaceCompare.alpha = 1.0f
-                        LogActivity.addLog("OCR", "Recognition successful: ${info.name}")
-                    } else {
-                        tvStatus.text = "OCR failed. Please input manually."
-                        LogActivity.addLog("OCR", "Failed to recognize")
-                    }
+                if (bitmap == null) {
+                    tvStatus.text = "Failed to load image"
+                    return@launch
+                }
+                
+                currentIdCardBitmap = bitmap
+                ivIdCard.setImageBitmap(bitmap)
+                layoutUpload.visibility = android.view.View.GONE
+                tvStatus.text = "Recognizing..."
+                
+                LogActivity.addLog("OCR", "Starting recognition")
+                
+                val info = withContext(Dispatchers.IO) {
+                    performBaiduOCR(bitmap)
+                }
+                
+                if (info != null) {
+                    currentIdCardInfo = info
+                    displayIDCardInfo(info)
+                    tvStatus.text = "Success: "
+                    LogActivity.addLog("OCR", "Success: ")
+                } else {
+                    tvStatus.text = "OCR failed, please input manually"
+                    LogActivity.addLog("OCR", "Failed")
                 }
                 
             } catch (e: Exception) {
-                LogActivity.addLog("OCR", "Exception: ${e.message}")
-                tvStatus.text = "Error loading image"
+                LogActivity.addLog("OCR", "Error: ")
+                tvStatus.text = "Error: "
             }
         }
     }
     
     private fun performBaiduOCR(bitmap: Bitmap): IDCardInfo? {
         try {
-            LogActivity.addLog("OCR", "Starting inline Baidu OCR...")
-            
-            val tokenUrl = "https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=$API_KEY&client_secret=$SECRET_KEY"
+            val tokenUrl = "https://aip.baidubce.com/oauth/2.0/token?grant_type=client_credentials&client_id=&client_secret="
             val tokenRequest = Request.Builder()
                 .url(tokenUrl)
                 .post(FormBody.Builder().build())
@@ -181,22 +220,21 @@ class MainActivity : AppCompatActivity() {
             
             val client = OkHttpClient()
             LogActivity.addLog("OCR", "Getting token...")
+            
             val tokenResponse = client.newCall(tokenRequest).execute()
             val tokenBody = tokenResponse.body?.string()
-            
             val token = JSONObject(tokenBody ?: "{}").optString("access_token")
+            
             if (token.isEmpty()) {
-                LogActivity.addLog("OCR", "Failed to get token")
+                LogActivity.addLog("OCR", "Token empty")
                 return null
             }
-            LogActivity.addLog("OCR", "Got token: ${token.take(20)}...")
             
             val outputStream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
             val imageBase64 = android.util.Base64.encodeToString(outputStream.toByteArray(), android.util.Base64.NO_WRAP)
-            LogActivity.addLog("OCR", "Image base64 length: ${imageBase64.length}")
             
-            val ocrUrl = "https://aip.baidubce.com/rest/2.0/ocr/v1/idcard?access_token=$token&id_card_side=front"
+            val ocrUrl = "https://aip.baidubce.com/rest/2.0/ocr/v1/idcard?access_token=&id_card_side=front"
             val ocrBody = FormBody.Builder()
                 .add("image", imageBase64)
                 .add("detect_direction", "true")
@@ -207,22 +245,22 @@ class MainActivity : AppCompatActivity() {
                 .post(ocrBody)
                 .build()
             
-            LogActivity.addLog("OCR", "Calling Baidu OCR API...")
+            LogActivity.addLog("OCR", "Calling API...")
             val ocrResponse = client.newCall(ocrRequest).execute()
             val ocrResult = ocrResponse.body?.string()
-            LogActivity.addLog("OCR", "OCR response received")
+            
+            LogActivity.addLog("OCR", "Response: ...")
             
             return parseOCRResult(ocrResult ?: "")
             
         } catch (e: Exception) {
-            LogActivity.addLog("OCR", "OCR Exception: ${e.javaClass.simpleName} - ${e.message}")
+            LogActivity.addLog("OCR", "Exception: ")
             return null
         }
     }
     
     private fun parseOCRResult(jsonStr: String): IDCardInfo? {
         try {
-            // 关键修复：直接用字符串查找，避免中文变量
             val nameIdx = jsonStr.indexOf("\"姓名\":{\"words\":\"")
             val idIdx = jsonStr.indexOf("\"公民身份号码\":{\"words\":\"")
             val genderIdx = jsonStr.indexOf("\"性别\":{\"words\":\"")
@@ -230,7 +268,7 @@ class MainActivity : AppCompatActivity() {
             
             fun extractValue(idx: Int): String {
                 if (idx == -1) return ""
-                val start = idx + 13  // 跳过前缀长度
+                val start = idx + 13
                 val end = jsonStr.indexOf("\"", start)
                 return if (end == -1) "" else jsonStr.substring(start, end)
             }
@@ -240,22 +278,14 @@ class MainActivity : AppCompatActivity() {
             val gender = extractValue(genderIdx)
             val address = extractValue(addrIdx)
             
-            LogActivity.addLog("OCR", "Extracted - Name: '$name', ID: '$idNumber', Gender: '$gender'")
+            LogActivity.addLog("OCR", "Got name='' id=''")
             
-            if (name.isEmpty() && idNumber.isEmpty()) {
-                LogActivity.addLog("OCR", "Empty extraction result")
-                return null
-            }
+            if (name.isEmpty() && idNumber.isEmpty()) return null
             
-            return IDCardInfo(
-                name = name,
-                idNumber = idNumber,
-                gender = gender,
-                address = address
-            )
+            return IDCardInfo(name, idNumber, gender, address)
             
         } catch (e: Exception) {
-            LogActivity.addLog("OCR", "Parse exception: ${e.message}")
+            LogActivity.addLog("OCR", "Parse error: ")
             return null
         }
     }
@@ -270,11 +300,9 @@ class MainActivity : AppCompatActivity() {
     private fun performFaceVerification(faceBitmap: Bitmap) {
         lifecycleScope.launch {
             try {
-                LogActivity.addLog("Face", "Sending to Aliyun API for comparison")
-                
                 val idCardBitmap = currentIdCardBitmap
                 if (idCardBitmap == null) {
-                    LogActivity.addLog("Face", "No ID card bitmap available")
+                    tvStatus.text = "No ID card image"
                     return@launch
                 }
                 
@@ -283,26 +311,22 @@ class MainActivity : AppCompatActivity() {
                 }
                 
                 result?.let { (score, message) ->
-                    LogActivity.addLog("Face", "API Result: score=$score, message=$message")
-                    
                     val isSamePerson = score > 60.0
                     val similarity = score.toInt()
                     
                     if (isSamePerson) {
-                        tvResult.text = "SAME PERSON (Similarity: $similarity%)"
+                        tvResult.text = "SAME PERSON (%)"
                         tvResult.setBackgroundColor(android.graphics.Color.GREEN)
-                        LogActivity.addLog("Face", "Result: SAME PERSON (Similarity: $similarity%)")
                     } else {
-                        tvResult.text = "DIFFERENT PERSON (Similarity: $similarity%)"
+                        tvResult.text = "DIFFERENT PERSON (%)"
                         tvResult.setBackgroundColor(android.graphics.Color.RED)
-                        LogActivity.addLog("Face", "Result: DIFFERENT PERSON (Similarity: $similarity%)")
                     }
                     tvResult.visibility = android.view.View.VISIBLE
                 }
                 
             } catch (e: Exception) {
-                LogActivity.addLog("Face", "Exception: ${e.message}")
-                tvStatus.text = "Face verification error"
+                LogActivity.addLog("Face", "Error: ")
+                tvStatus.text = "Face error: "
             }
         }
     }
